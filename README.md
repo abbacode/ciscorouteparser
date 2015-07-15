@@ -6,7 +6,8 @@ Instruction:
 2. Run the script
 
 
-Example of what should be in the 'routes.txt' file:
+
+Example of what should be in the 'routes.txt' file, it should start at the point where you issue the command:
 
 CiscoRouter#   show ip route     
 Codes: L - local, C - connected, S - static, R - RIP, M - mobile, B - BGP
@@ -29,3 +30,5 @@ B    1.1.1.0/24 [200/0] via 1.1.1.1, 1d11h
                       [200/0] via 1.1.1.3, 1d13h
 B        10.4.4.0/24 [20/0] via 10.65.11.2, 7w0d
 B        10.4.60.0/24 [20/0] via 10.65.11.2, 7w0d
+
+Note. View this in raw format to see the proper output.
