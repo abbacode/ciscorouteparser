@@ -30,7 +30,7 @@ routes_key = {"C"     : "Connected",
               "*"  : "Candidate Default"}
 
 # Each route will have the following values
-class Route_Template(object):
+class Route(object):
     def __init__(self):
         self.route = {}
         self.protocol = []
@@ -42,63 +42,64 @@ class Route_Template(object):
         return str(self.route)
 
 # The main code structure
-class RouteParse(object):
+class Code(object):
     def __init__(self):
         self.route_table = {}
-        self.Read_File()
-        self.Generate_Output_To_File()
+        self.read_file()
+        self.generate_output_to_file()
 
     # Retrieve a route object if it exists
-    def Get_Route_Object(self,target_route):
-        for route in self.route_table:
-            if target_route in route:
-                return self.route_table[route]
-        return None
+    def get_route(self,route):
+        return self.route_table.get(route)
 
     # If the regular expression picked up a valid route, extract the values into a temporary dictionary
-    def Get_Route_Values_From_Match(self,matchObj):
+    def get_match_values(self,match):
         values = {}
-        for keyword, value in vars(Route_Template()).items():
-            if keyword in matchObj.groupdict():
-                val =  str(matchObj.group(keyword).strip())
+        for keyword, value in vars(Route()).items():
+            if keyword in match.groupdict():
+                val =  str(match.group(keyword).strip())
                 values[keyword] = val
             else:
-                values[keyword] = "N/A"
+                values[keyword] = ""
         return values
 
     # Create a new route object using the values from the temporary dictionary
-    def Create_New_Route(self,match):
-        route = self.Get_Route_Values_From_Match(match)
-        route_prefix = route["route"]
-        if not self.Get_Route_Object(route_prefix):
-            NewRoute = Route_Template()
-            NewRoute.route = route["route"]
-            NewRoute.protocol.append(route["protocol"])
-            NewRoute.metric.append(route["metric"])
-            NewRoute.next_hop.append(route["next_hop"])
-            NewRoute.interface.append(route["interface"])
-            NewRoute.age.append(route["age"])
-            self.route_table[NewRoute.route] = NewRoute
+    def create_route(self,match):
+        match_values = self.get_match_values(match)
+        route_prefix = match_values["route"]
+        existing_route = self.get_route(route_prefix)
+
+        if not existing_route:
+            new_route = Route()
+            new_route.route = match_values["route"]
+            new_route.protocol.append(match_values["protocol"])
+            new_route.metric.append(match_values["metric"])
+            new_route.next_hop.append(match_values["next_hop"])
+            new_route.interface.append(match_values["interface"])
+            new_route.age.append(match_values["age"])
+            self.route_table[route_prefix] = new_route
 
     # Search the route for an ECMP pattern and then update the route object if it is found
-    def Add_ECMP_Route(self,previous_route,line):
-        route = self.Get_Route_Object(previous_route)
-        ecmp_patterns = [r'(?P<metric>\[.*\/.*\]) via (?P<next_hop>.*), (?P<age>.*), (?P<interface>.*)', \
-                        r'(?P<metric>\[.*\/.*\]) via (?P<next_hop>.*), (?P<age>.*)']
+    def add_ecmp_route(self,route,string_to_search):
+        parent_route = self.get_route(route)
+        ecmp_patterns = [
+            r'(?P<metric>\[.*\/.*\]) via (?P<next_hop>.*), (?P<age>.*), (?P<interface>.*)', \
+            r'(?P<metric>\[.*\/.*\]) via (?P<next_hop>.*), (?P<age>.*)'
+        ]
         for pattern in ecmp_patterns:
-            match = re.search(pattern,line)
+            match = re.search(pattern,string_to_search)
             if match:
-                route.protocol.append(route.protocol[0])
-                route.metric.append(match.group('metric').strip())
-                route.next_hop.append(match.group('next_hop').strip())
-                route.age.append(match.group('age').strip())
+                parent_route.protocol.append(parent_route.protocol[0])
+                parent_route.metric.append(match.group('metric').strip())
+                parent_route.next_hop.append(match.group('next_hop').strip())
+                parent_route.age.append(match.group('age').strip())
                 try:
-                    route.interface.append(match.group('interface').strip())
+                    parent_route.interface.append(match.group('interface').strip())
                 except IndexError:
-                    route.interface.append("N/A")
+                    parent_route.interface.append("N/A")
                 break
 
-    def Get_Host_Range(self,subnet):
+    def get_host_range(self,subnet):
         try:
             range = ipaddress.ip_network(subnet)
             return range[1],range[-2]
@@ -108,32 +109,45 @@ class RouteParse(object):
             return range[0], ""
 
 
-    def Generate_Output_To_File(self):
+    def generate_output_to_file(self):
         try:
             with open('routes.csv', 'w', newline='') as csv_file:
-                spamwriter = csv.writer(csv_file, delimiter=',',
-                                                  quotechar='|',
-                                                  quoting=csv.QUOTE_MINIMAL)
-                spamwriter.writerow(['Route', 'Protocol','Metric','Next Hop','Age','Interface','From Range','To Range'])
-
+                spamwriter = csv.writer(
+                    csv_file,
+                    delimiter=',',
+                    quotechar='|',
+                    quoting=csv.QUOTE_MINIMAL
+                )
+                spamwriter.writerow([
+                    'Route',
+                    'Protocol',
+                    'Metric',
+                    'Next Hop',
+                    'Age',
+                    'Interface',
+                    'From Range',
+                    'To Range']
+                )
                 for entry in sorted(self.route_table):
-                    route = self.Get_Route_Object(entry)
-                    first_ip, last_ip = self.Get_Host_Range(route)
+                    route = self.get_route(entry)
+                    first_ip, last_ip = self.get_host_range(route)
                     for no in range(len(route.protocol)):
-                        spamwriter.writerow([route.route,
-                                             route.protocol[no],
-                                             route.metric[no],
-                                             route.next_hop[no],
-                                             route.age[no],
-                                             route.interface[no],
-                                             first_ip,
-                                             last_ip])
+                        spamwriter.writerow([
+                            route.route,
+                            route.protocol[no],
+                            route.metric[no],
+                            route.next_hop[no],
+                            route.age[no],
+                            route.interface[no],
+                            first_ip,
+                            last_ip
+                        ])
             print ("  -- Output saved to 'routes.csv'")
         except:
             print ("  -- Unable to write to routes.csv, if the file is already open close it.")
 
-    def Read_File(self):
-        start_processing_routes = False
+    def read_file(self):
+        start_processing = False
         invalid_phrases = ["variably","subnetted"]
 
         with open("routes.txt","r") as route_file:
@@ -146,42 +160,45 @@ class RouteParse(object):
                 if any(x in line for x in invalid_phrases):
                     continue
                 if "Gateway" in line:
-                    start_processing_routes = True
+                    start_processing = True
+                    continue
+                if not start_processing:
                     continue
 
                 line = line.strip().replace("\n","")
-                if start_processing_routes:
-                    #---------------------------------------
-                    # Define all the possible regex patterns
-                    #---------------------------------------
-                    # Line 1. BGP
-                    # Line 2. IGP (OSPF,EIGRP etc)
-                    # Line 3. Static routes
-                    # Line 4. Connected/local routes
-                    #---------------------------------------
-                    patterns = [r'(?P<protocol>[a-zA-Z] ..) (?P<route>.*) (?P<metric>.*) via (?P<next_hop>.*), ?(?P<age>.*), ?(?P<interface>.*)', \
-                                r'(?P<protocol>[a-zA-Z]..) (?P<route>.*) (?P<metric>.*) via (?P<next_hop>.*), ?(?P<age>.*), ?(?P<interface>.*)', \
-                                r'(?P<protocol>[a-zA-Z]) (?P<route>.*) is a summary, (?P<age>.*), (?P<interface>.*)', \
-                                r'(?P<protocol>[a-zA-Z]..) (?P<route>.*) is a summary, (?P<age>.*), (?P<interface>.*)', \
-                                r'(?P<protocol>B.*|B\*.*) (?P<route>.*) (?P<metric>.*) via (?P<next_hop>.*), (?P<age>.*)', \
-                                r'(?P<protocol>S.*|S\*.*) (?P<route>.*) (?P<metric>.*) via (?P<next_hop>.*)', \
-                                r'(?P<protocol>C.*|L.*) (?P<route>.*) is directly connected, (?P<interface>.*)']
+                #---------------------------------------
+                # Define all the possible regex patterns
+                #---------------------------------------
+                # Line 1. BGP
+                # Line 2. IGP (OSPF,EIGRP etc)
+                # Line 3. Static routes
+                # Line 4. Connected/local routes
+                #---------------------------------------
+                if start_processing:
+                    patterns = [
+                        r'(?P<protocol>[a-zA-Z] ..) (?P<route>.*) (?P<metric>.*) via (?P<next_hop>.*), ?(?P<age>.*), ?(?P<interface>.*)', \
+                        r'(?P<protocol>[a-zA-Z]..) (?P<route>.*) (?P<metric>.*) via (?P<next_hop>.*), ?(?P<age>.*), ?(?P<interface>.*)', \
+                        r'(?P<protocol>[a-zA-Z]) (?P<route>.*) is a summary, (?P<age>.*), (?P<interface>.*)', \
+                        r'(?P<protocol>[a-zA-Z]..) (?P<route>.*) is a summary, (?P<age>.*), (?P<interface>.*)', \
+                        r'(?P<protocol>B.*|B\*.*) (?P<route>.*) (?P<metric>.*) via (?P<next_hop>.*), (?P<age>.*)', \
+                        r'(?P<protocol>S.*|S\*.*) (?P<route>.*) (?P<metric>.*) via (?P<next_hop>.*)', \
+                        r'(?P<protocol>C.*|L.*) (?P<route>.*) is directly connected, (?P<interface>.*)'
+                    ]
                     #-----------------------------------------------------
                     # Cycle through all the patterns and grab the matches
                     #-----------------------------------------------------
-                    valid_route_entry = False
+                    ecmp_route_found = False
                     for regex in patterns:
                         match = re.search(regex,line)
                         if match:
-                            self.Create_New_Route(match)
-                            last_route = match.group('route').strip()
-                            valid_route_entry = True
+                            self.create_route(match)
+                            prefix_being_processed = match.group('route').strip()
+                            ecmp_route_found = True
                             break
-                    if not valid_route_entry:
-                        self.Add_ECMP_Route(last_route, line)
-
+                    if not ecmp_route_found:
+                        self.add_ecmp_route(prefix_being_processed, line)
 
 print ("Cisco IOS Route Parser version: '{}'".format(__version__))
-c = RouteParse()
+c = Code()
 
 
